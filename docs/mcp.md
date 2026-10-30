@@ -75,8 +75,8 @@ refuses the call, and the design is left as it was. Bridged, the server asks the
 connection whether it checks a request's own level (`control.capabilities` and `param_check` in
 [control-protocol.md](control-protocol.md)). If it does, every call and `batch` is sent with the
 level and the app checks it against its own commands, so a newer app's keys are not refused. At
-`strict`, a reply that doesn't say the app checked the call is an error (it may have run
-unchecked: inspect the design), and the server checks the next calls itself.
+`strict`, a reply that doesn't say the app checked the call at that level is an error (it may
+have run unchecked: inspect the design), and the server checks the next calls itself.
 An older app is checked here instead, against the server's own commands' contracts, before
 anything is sent: `strict` sends nothing that breaks one, and a command the server has no
 contract for goes to the app unchecked. With such an app, use the server from the same release:

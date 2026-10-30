@@ -509,6 +509,8 @@ impl Remote {
         if let Some(known) = self.app_checks {
             return known;
         }
+        // Sent ahead of settling a request still running on this connection: the app answers
+        // `control.capabilities` at once, as `control.running`, without taking that one's reply.
         let line = self.request_line("control.capabilities", json!({}));
         let reply = self.roundtrip(&line).ok().and_then(|r| serde_json::from_str::<Value>(&r).ok());
         let known = match reply.as_ref().map(outcome) {
@@ -523,10 +525,10 @@ impl Remote {
     }
 
     /// The reply to a call sent with this bridge's level: at `strict`, one that doesn't say the
-    /// app checked it is an error, since the call may have run unchecked; and the next calls are
-    /// checked here.
+    /// app checked it at that level is an error, since the call may have run unchecked; and the
+    /// next calls are checked here.
     fn confirmed(&mut self, reply: Result<Value, String>) -> Result<Value, String> {
-        let unconfirmed = reply.is_ok() && self.echoed.is_none();
+        let unconfirmed = reply.is_ok() && self.echoed != Some(self.param_check);
         if unconfirmed {
             self.app_checks = Some(false);
         }

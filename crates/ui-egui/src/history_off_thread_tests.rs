@@ -696,11 +696,16 @@ fn a_reading_on_a_copy_keeps_the_requests_param_check() {
     let r = reply_to(&mut h, &loud);
     assert!(r["ok"] == false && r["error"].as_str().is_some_and(|e| e.contains("`param_check` must be off, warn or strict")), "{r}");
     // A design change computed ahead off the window thread runs here at the request's level.
-    h.app.preferences.agent_off_thread = true;
     let features = h.app.session.doc.features.len();
-    let misspelt =
-        |level: &str| json!({"command": "solid.box", "params": {"length": 5, "width": 5, "height": 5, "operaton": "cut"}, "param_check": level});
+    let misspelt = |level: &str| {
+        let mut call = second_hole();
+        call["params"]["operaton"] = json!("cut");
+        call["param_check"] = json!(level);
+        call
+    };
     let strict = ask(&tx, "engine.execute", misspelt("strict"));
+    h.frames(1);
+    assert!(h.app.agent_computing().is_some(), "computed ahead off the window thread");
     let r = reply_to(&mut h, &strict);
     assert_eq!((&r["ok"], &r["param_check"]), (&json!(false), &json!("strict")), "{r}");
     assert_eq!(h.app.session.doc.features.len(), features, "refused unrun");

@@ -151,10 +151,11 @@ MCP server sends its folders this way on every request ([mcp.md](mcp.md)). Witho
 contracts at that level, whatever the app's own (which is `off`), as a headless session's
 `--param-check` checks them (#9184). `warn` runs a call that breaks its contract and adds
 `param_warnings` to its result; `strict` refuses it (a batch before its first step), and the
-design is left as it was. Every reply to such a request says which level it ran at as
-`param_check`, beside `ok`; a command that switches to another design (`component.edit_in_place`,
-`component.finish_edit`, `view.next_tab`, `view.previous_tab`) runs at the app's own level. Any
-other word is refused. An app older than this ignores the field and its reply has no
+design is left as it was. Every reply to such a request says the level it was checked at as
+`param_check`, beside `ok`. A command that switches to another design (`component.edit_in_place`,
+`component.finish_edit`, `view.next_tab`, `view.previous_tab`) has its parameters checked at
+that level before it runs, and then runs at the app's own level, as each design keeps its own.
+Any other word is refused; other methods ignore the field. An app older than this ignores the field and its reply has no
 `param_check`, so a client that needs the check asks `control.capabilities` first and treats a
 reply without `param_check` as unchecked. The bridged MCP server asks once per connection
 ([mcp.md](mcp.md)).

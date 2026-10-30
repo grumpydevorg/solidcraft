@@ -408,8 +408,7 @@ impl SolveApp {
         let Ok(scope) = crate::control::request_scope(self, &req.params) else { return Some(req) };
         // The request's own level (#9184) checks it on the copy, and the reply says so, as
         // `control::handle` does; a word that is no level is refused there.
-        let Ok(level) = crate::control::request_param_check(&req.params) else { return Some(req) };
-        let level = level.filter(|_| matches!(req.method.as_str(), "engine.execute" | "command"));
+        let Ok(level) = crate::control::request_param_check(&req.method, &req.params) else { return Some(req) };
         let mut copy = self.session.scratch();
         if let Some(level) = level {
             copy.param_check = level;

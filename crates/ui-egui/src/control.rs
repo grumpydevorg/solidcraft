@@ -453,7 +453,7 @@ pub fn view_png(app: &SolveApp, w: u32, h: u32) -> Result<Vec<u8>, String> {
 }
 
 pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {
-    let level = match request_param_check(&req.params) {
+    let level = match request_param_check(&req.method, &req.params) {
         Ok(level) => level,
         Err(e) => return err(e),
     };
@@ -480,31 +480,57 @@ pub fn handle(app: &mut SolveApp, ctx: &egui::Context, req: &ControlRequest) -> 
     }
 }
 
-/// The request's `param_check` (#9184): how its commands are checked against their contracts,
-/// whatever the app's own session level; `None` when it names none.
-pub(crate) fn request_param_check(params: &Value) -> Result<Option<ParamCheck>, String> {
+/// The request's `param_check` (#9184): how the commands of an `engine.execute`, `engine.batch`
+/// or `engine.script` are checked against their contracts, whatever the app's own session level;
+/// `None` when it names none (other methods ignore the field).
+pub(crate) fn request_param_check(method: &str, params: &Value) -> Result<Option<ParamCheck>, String> {
+    if !matches!(method, "engine.execute" | "command" | "engine.batch" | "engine.script") {
+        return Ok(None);
+    }
     match params.get("param_check") {
         None => Ok(None),
         Some(v) => v.as_str().and_then(ParamCheck::parse).map(Some).ok_or_else(|| "`param_check` must be off, warn or strict".to_string()),
     }
 }
 
-/// `dispatch` with `engine.execute`, `engine.batch` and `engine.script` run at `level`, and the
-/// level applied echoed in the reply as `param_check`, so a client can tell an app that checked
+/// `dispatch` of an `engine.execute`, `engine.batch` or `engine.script` with its commands checked
+/// at `level`, echoed in the reply as `param_check`, so a client can tell an app that checked
 /// from an older one that ignored the field. The session goes back to its own level afterwards.
-/// A command that switches to another design runs at the app's own level: the level is the
-/// request's, not the other design's.
 fn dispatch_checked(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value, level: ParamCheck) -> Outcome {
-    if !matches!(method, "engine.execute" | "command" | "engine.batch" | "engine.script") {
-        return dispatch(app, ctx, method, p);
-    }
-    let own = app.session.param_check;
-    let applied = if switches_design(p).is_some() { own } else { level };
-    app.session.param_check = applied;
-    let mut out = dispatch(app, ctx, method, p);
-    app.session.param_check = own;
+    let mut out = if switches_design(p).is_some() {
+        switch_checked(app, ctx, method, p, level)
+    } else {
+        let own = app.session.param_check;
+        app.session.param_check = level;
+        let out = dispatch(app, ctx, method, p);
+        app.session.param_check = own;
+        out
+    };
     if let Outcome::Done(Value::Object(o)) = &mut out {
-        o.insert("param_check".into(), json!(applied.name()));
+        o.insert("param_check".into(), json!(level.name()));
+    }
+    out
+}
+
+/// A command that switches to another design, checked at `level` before it runs: it runs at the
+/// app's own level, since the session it leaves and the one it brings in each keep theirs.
+fn switch_checked(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value, level: ParamCheck) -> Outcome {
+    let id = command(p).unwrap_or_default();
+    let contract = solidcraft_engine::find_command(id).and_then(|c| c.contract);
+    let issues: Vec<String> =
+        contract.map(|c| c.check(p.get("params").unwrap_or(&Value::Null)).into_iter().map(|i| i.message).collect()).unwrap_or_default();
+    if level == ParamCheck::Strict
+        && let Some(first) = issues.first()
+    {
+        return err(solidcraft_engine::params::bad(id, first.as_str()));
+    }
+    let mut out = dispatch(app, ctx, method, p);
+    if level == ParamCheck::Warn
+        && !issues.is_empty()
+        && let Outcome::Done(v) = &mut out
+        && let Some(o) = v.get_mut("result").and_then(Value::as_object_mut)
+    {
+        o.insert("param_warnings".into(), json!(issues));
     }
     out
 }
@@ -1991,8 +2017,18 @@ mod tests {
         assert!(v["ok"] == false && v["error"].as_str().is_some_and(|e| e.contains("`param_check` must be off, warn or strict")), "{v}");
         // The level is this request's, not another design's.
         let v = h.call("engine.execute", json!({"command": "view.next_tab", "params": {}, "param_check": "strict"}));
-        assert_eq!(v["param_check"], "off", "{v}");
+        assert_eq!((&v["ok"], &v["param_check"]), (&json!(true), &json!("strict")), "{v}");
         assert_eq!(h.app.session.param_check, ParamCheck::Off);
+        // Its own parameters are still checked at the request's level, before it runs.
+        let v = h.call("engine.execute", json!({"command": "view.next_tab", "params": {"nonsense": 1}, "param_check": "strict"}));
+        assert!(v["ok"] == false && v["error"].as_str().is_some_and(|e| e.contains("nonsense")), "{v}");
+        assert_eq!(v["param_check"], "strict", "{v}");
+        let v = h.call("engine.execute", json!({"command": "view.next_tab", "params": {"nonsense": 1}, "param_check": "warn"}));
+        assert!(v["result"]["param_warnings"].as_array().is_some_and(|w| !w.is_empty()), "{v}");
+        assert_eq!(h.app.session.param_check, ParamCheck::Off);
+        // Other methods ignore the field, whatever it holds.
+        let v = h.call("ui.inspect", json!({"param_check": "loud"}));
+        assert_eq!((&v["ok"], v.get("param_check")), (&json!(true), None), "{v}");
     }
 
     #[test]

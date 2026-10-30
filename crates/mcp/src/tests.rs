@@ -2415,25 +2415,27 @@ fn a_bridged_server_leaves_the_check_to_an_app_that_makes_it() {
     assert!(levels.lock().unwrap().iter().all(|l| l == "strict"), "{:?}", levels.lock().unwrap());
 }
 
-/// An app that says it checks `param_check` but answers a call without saying it did (#9184): at
-/// `strict` that is an error, as the call may have run unchecked, and from then on the server
-/// checks the calls itself before sending them.
+/// An app that says it checks `param_check` but answers a call without saying it checked it at
+/// the bridge's level (#9184), with no echo or another level: at `strict` that is an error, as the
+/// call may have run unchecked, and from then on the server checks the calls itself.
 #[test]
 fn a_bridged_server_at_strict_refuses_an_unconfirmed_reply() {
     use solidcraft_engine::schema::ParamCheck;
-    let (addr, seen) = scripted_app(|req| match req["method"].as_str() {
-        Some("control.capabilities") => json!({"ok": true, "result": {"param_check": ["off", "warn", "strict"]}}),
-        _ => json!({"ok": true, "result": {"created_bodies": ["Box1"]}}),
-    });
-    let remote = crate::Remote::connect_with_token(&addr, Some("0123456789abcdef0123456789abcdef")).unwrap().with_param_check(ParamCheck::Strict);
-    let mut s = Server::new(Box::new(remote));
-    let sent = |what: &str| seen.lock().unwrap().1.iter().filter(|w| w.as_str() == what).count();
-    let r = raw_tool(&mut s, "execute", json!({"command": "solid.sphere", "params": {"radius": 2}}));
-    assert_eq!(r["result"]["isError"], json!(true), "{r}");
-    assert!(r.to_string().contains("did not say it checked this call"), "{r}");
-    let r = raw_tool(&mut s, "execute", json!({"command": "solid.box", "params": {"length": 5, "width": 5, "height": 5, "operaton": "cut"}}));
-    assert!(r.to_string().contains("unknown key `operaton`"), "checked here now: {r}");
-    assert_eq!(sent("engine.execute solid.box"), 0, "refused unsent");
+    for echo in [Value::Null, json!("off")] {
+        let (addr, seen) = scripted_app(move |req| match req["method"].as_str() {
+            Some("control.capabilities") => json!({"ok": true, "result": {"param_check": ["off", "warn", "strict"]}}),
+            _ => json!({"ok": true, "result": {"created_bodies": ["Box1"]}, "param_check": echo}),
+        });
+        let remote = crate::Remote::connect_with_token(&addr, Some("0123456789abcdef0123456789abcdef")).unwrap().with_param_check(ParamCheck::Strict);
+        let mut s = Server::new(Box::new(remote));
+        let sent = |what: &str| seen.lock().unwrap().1.iter().filter(|w| w.as_str() == what).count();
+        let r = raw_tool(&mut s, "execute", json!({"command": "solid.sphere", "params": {"radius": 2}}));
+        assert_eq!(r["result"]["isError"], json!(true), "{r}");
+        assert!(r.to_string().contains("did not say it checked this call"), "{r}");
+        let r = raw_tool(&mut s, "execute", json!({"command": "solid.box", "params": {"length": 5, "width": 5, "height": 5, "operaton": "cut"}}));
+        assert!(r.to_string().contains("unknown key `operaton`"), "checked here now: {r}");
+        assert_eq!(sent("engine.execute solid.box"), 0, "refused unsent");
+    }
 }
 
 /// Plain `mcp` with no app running: the session is headless, says so on every result, and bridges
