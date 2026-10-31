@@ -437,7 +437,7 @@ fn build_in(s: &mut Session, outline: &Outline, holes: &Holes, offset: Vec2, thi
         let mut material = Vec::new();
         for (edges, depth) in &loops {
             let geom: Vec<Geom2> = edges.iter().filter_map(|i| outline.edges.get(*i)).map(Edge::geom).collect();
-            let (curves, _) = add_geometry(sk, &geom, &shift, 1.0, JOIN)?;
+            let (curves, _, _) = add_geometry(sk, &geom, &shift, 1.0, JOIN)?;
             if depth % 2 == 0 {
                 material.push(ids_of(sk, &curves));
             }
@@ -966,7 +966,7 @@ impl Outline {
                 Geom2::Line(..) | Geom2::Arc { .. } | Geom2::Circle(..) => {
                     return Err(EngineError::Other("the board outline has a curve with a coordinate that is not a number".into()));
                 }
-                Geom2::Ellipse { .. } | Geom2::Spline { .. } | Geom2::Conic { .. } => {
+                Geom2::Ellipse { .. } | Geom2::Spline { .. } | Geom2::Nurbs(_) | Geom2::Conic { .. } => {
                     return Err(EngineError::Other("the board outline has a curve that is not a line or an arc".into()));
                 }
             };

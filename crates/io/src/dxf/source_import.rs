@@ -367,14 +367,18 @@ fn project_records(
                     }
                 }
             }
-            DxfShape::SourceSpline { degree, ctrl, fit, .. } => {
+            DxfShape::SourceSpline { degree, ctrl, fit, knots, weights, .. } => {
                 if fit.len() >= 2 {
                     push(out, Geom2::Spline { pts: copy_points(fit, work)?, control: false, degree: 3 })?;
                 } else if ctrl.len() >= 2 {
-                    push(
-                        out,
-                        Geom2::Spline { pts: copy_points(ctrl, work)?, control: true, degree: degree.clamp(1.0, MAX_BEZIER_DEGREE as f64) as u8 },
-                    )?;
+                    if knots.is_empty() && weights.is_empty() {
+                        // The sketch's spline over the points, at the degrees a sketch spline takes
+                        // (a G4 blend's Bézier is degree 9).
+                        let degree = degree.clamp(1.0, MAX_BEZIER_DEGREE as f64) as u8;
+                        push(out, Geom2::Spline { pts: copy_points(ctrl, work)?, control: true, degree })?;
+                    } else {
+                        push(out, spline(*degree, ctrl, knots, weights, work)?)?;
+                    }
                 }
             }
             DxfShape::Text { at, height, angle_deg, text } => {
@@ -396,6 +400,29 @@ pub(super) fn copy_points(points: &[Vec2], work: &mut usize) -> Result<Vec<Vec2>
     copied.extend_from_slice(points);
     Ok(copied)
 }
+
+/// A SPLINE with its own knots (40) and, when rational, a weight per control point (41), its
+/// points in millimetres: the curve they describe, checked ([`NurbsCurve`]). Refused, with the
+/// reason, when they don't describe one; weights need knots.
+fn spline(degree: f64, ctrl: &[Vec2], knots: &[f64], weights: &[f64], work: &mut usize) -> Result<Geom2> {
+    let refuse = |why: String| IoError::Invalid(format!("a SPLINE can't be read: {why}"));
+    let p = Some(degree)
+        .filter(|d| d.fract() == 0.0 && (1.0..=MAX_SPLINE_DEGREE as f64).contains(d))
+        .map(|d| d as usize)
+        .ok_or_else(|| refuse(format!("its degree {degree} is not one of 1 to {MAX_SPLINE_DEGREE}")))?;
+    if knots.is_empty() {
+        return Err(refuse("it has weights but no knots".into()));
+    }
+    if !weights.is_empty() && weights.len() != ctrl.len() {
+        return Err(refuse(format!("{} weights for {} control points", weights.len(), ctrl.len())));
+    }
+    visit(work, ctrl.len() + knots.len())?;
+    let mut h: Vec<HPoint> = Vec::new();
+    h.try_reserve_exact(ctrl.len()).map_err(|_| IoError::Invalid("DXF sketch point copy allocation failed".into()))?;
+    h.extend(ctrl.iter().enumerate().map(|(i, q)| HPoint::weighted(Vec3::new(q.x, q.y, 0.0), weights.get(i).copied().unwrap_or(1.0))));
+    NurbsCurve::from_homogeneous(p, knots.to_vec(), &h).map(Geom2::Nurbs).map_err(|e| refuse(e.to_string()))
+}
+
 pub(super) fn copy_text(text: &str, work: &mut usize) -> Result<String> {
     visit(work, text.len())?;
     let mut copied = String::new();
