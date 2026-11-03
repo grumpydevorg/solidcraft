@@ -83,6 +83,12 @@ pub struct InsertDrawingKeys {
     /// brought inside; one that is not above 0 reads as the default). Default: 0.0001.
     #[serde(default)]
     pub tolerance: Option<f64>,
+    /// How far in mm a spline may come in from the file's curve in the sketch, 0.0001 to 10:
+    /// half for the curves that follow it, half for joining their ends. Default: 0.001. A piece
+    /// that can't be followed that close in 4096 curves comes in within a tolerance 4, 16, ...
+    /// times looser (at most 32 times), and the reply's `warnings` give the distance proven.
+    #[serde(default)]
+    pub fit_tolerance: Option<FitToleranceMm>,
     /// `true` puts a Fix constraint on every point the drawing adds (as `sketch.constraint.fix`
     /// does), so it stays where it is put; a circle's or ellipse's radius stays free, and text and
     /// the points the sketch already had are not touched. Default: false.
@@ -257,6 +263,32 @@ impl JsonSchema for PositiveMm {
     }
     fn json_schema(_: &mut SchemaGenerator) -> Schema {
         json_schema!({"description": "A size in mm, above 0.", "type": "number", "exclusiveMinimum": 0})
+    }
+}
+
+/// How far a spline may come in from the file's curve, as `fit_tolerance` is read: the bounds an
+/// equation curve's tolerance has.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FitToleranceMm(pub f64);
+
+impl<'de> Deserialize<'de> for FitToleranceMm {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use solidcraft_doc::sketch_equation::{MAX_TOLERANCE, MIN_TOLERANCE};
+        Value::deserialize(d)?
+            .as_f64()
+            .filter(|t| t.is_finite() && (MIN_TOLERANCE..=MAX_TOLERANCE).contains(t))
+            .map(FitToleranceMm)
+            .ok_or_else(|| D::Error::custom(format!("must be a number of mm from {MIN_TOLERANCE} to {MAX_TOLERANCE}")))
+    }
+}
+
+impl JsonSchema for FitToleranceMm {
+    fn schema_name() -> Cow<'static, str> {
+        "FitToleranceMm".into()
+    }
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        use solidcraft_doc::sketch_equation::{MAX_TOLERANCE, MIN_TOLERANCE};
+        json_schema!({"description": "A distance in mm.", "type": "number", "minimum": MIN_TOLERANCE, "maximum": MAX_TOLERANCE})
     }
 }
 

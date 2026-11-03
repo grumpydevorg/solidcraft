@@ -32,7 +32,23 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
 
 #[test]
 fn schemas_and_the_key_check_agree() {
-    let insert = ["align", "angle", "at", "fixed", "height", "name", "path", "plane", "scale", "size_from", "sketch", "text", "tolerance", "width"];
+    let insert = [
+        "align",
+        "angle",
+        "at",
+        "fit_tolerance",
+        "fixed",
+        "height",
+        "name",
+        "path",
+        "plane",
+        "scale",
+        "size_from",
+        "sketch",
+        "text",
+        "tolerance",
+        "width",
+    ];
     assert_keys(input_schema_for::<InsertDxfParams>(), &insert);
     assert_keys(input_schema_for::<InsertSvgParams>(), &insert);
     assert_keys(
@@ -193,6 +209,8 @@ fn the_types_read_like_the_handler() {
     assert_eq!(issues(json!({"text": "x", "size_from": "sheet"})), ["`size_from` must be \"geometry\" or \"viewbox\""]);
     assert!(issues(json!({"text": "x", "size_from": "viewbox", "fixed": true})).is_empty());
     assert_eq!(issues(json!({"text": "x", "fixed": "yes"})).len(), 1);
+    assert_eq!(issues(json!({"text": "x", "fit_tolerance": 0})), ["`fit_tolerance` must be a number of mm from 0.0001 to 10"]);
+    assert!(issues(json!({"text": "x", "fit_tolerance": null})).is_empty() && issues(json!({"text": "x", "fit_tolerance": 0.01})).is_empty());
     assert_eq!(issues(json!({"path": " "})), ["give `path` or `text`"]);
     assert_eq!(issues(json!({"text": "x", "sketch": true})), ["`sketch` must be an id or a name"]);
     assert_eq!(issues(json!({"text": "x", "wdth": 5})), ["unknown key `wdth`; did you mean `width`?"]);
