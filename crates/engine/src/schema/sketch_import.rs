@@ -85,8 +85,9 @@ pub struct InsertDrawingKeys {
     pub tolerance: Option<f64>,
     /// How far in mm a spline may come in from the file's curve in the sketch, 0.0001 to 10:
     /// half for the curves that follow it, half for joining their ends. Default: 0.001. A piece
-    /// that can't be followed that close in 4096 curves comes in within a tolerance 4, 16, ...
-    /// times looser (at most 32 times), and the reply's `warnings` give the distance proven.
+    /// that can't be followed that close comes in within a tolerance 4, 16, ... times looser (at
+    /// most 32 times), and the reply's `warnings` give the distance proven. A spline within 1e-9
+    /// mm of a point in the sketch is left out, and the `warnings` count it.
     #[serde(default)]
     pub fit_tolerance: Option<FitToleranceMm>,
     /// `true` puts a Fix constraint on every point the drawing adds (as `sketch.constraint.fix`
